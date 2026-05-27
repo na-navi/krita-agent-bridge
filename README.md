@@ -49,3 +49,8 @@ The design should also allow Krita-only automation when AI Diffusion is not avai
 ## Status
 
 Planning scaffold. See `PLANS.md` and `docs/issues/`.
+
+
+## License
+
+MIT. See `LICENSE`.
