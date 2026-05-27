@@ -44,7 +44,7 @@ krita-agent-bridge
 
 - detect plugin presence and version
 - query active model/capabilities through a narrow shim
-- avoid depending on private implementation details unless isolated
+- avoid depending on internal implementation details unless isolated
 
 ## Phase 4 — ComfyUI adapter
 
