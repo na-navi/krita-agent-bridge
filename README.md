@@ -59,7 +59,11 @@ Issue や Pull Request は歓迎します。バグ報告、設計相談、ユー
 
 ## 状態
 
-現在は計画段階の scaffold です。詳しくは `PLANS.md` と `docs/issues/` を参照してください。
+Phase 1（CLI diagnostics）と Phase 4（ComfyUI adapter）を実装済み。
+詳しくは `PLANS.md` と `docs/issues/` を参照してください。
+
+- `docs/safety.md` — 安全方針
+- `docs/recipes.md` — エージェント向けレシピ
 
 ## ライセンス
 
