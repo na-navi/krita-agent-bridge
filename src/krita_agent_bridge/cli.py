@@ -30,6 +30,10 @@ def command_doctor(args: argparse.Namespace) -> int:
     report = run_doctor(
         krita_api=args.krita_api,
         comfyui_api=args.comfyui_api,
+        check_ports=(
+            args.krita_api == DEFAULT_KRITA_API
+            and args.comfyui_api == DEFAULT_COMFYUI_API
+        ),
     )
     if args.json:
         print(json.dumps({"doctor": report.to_dict()}, ensure_ascii=False, indent=2))
