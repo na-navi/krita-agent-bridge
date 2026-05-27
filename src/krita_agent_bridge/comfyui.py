@@ -189,30 +189,44 @@ class ComfyUIAdapter:
         """Submit a prompt to ComfyUI via POST /prompt.
 
         The prompt dict should have the ComfyUI API format:
-        {"prompt": {...}, "client_id": "..."}
+        {"prompt": {<node_id>: {<class_type>, <inputs>}}, "client_id": "..."}
 
-        For now this validates + returns instructions, since POST
-        is not yet supported by JsonEndpointClient (GET only).
+        Validates node types before submission. Returns the prompt_id
+        on success.
         """
-        # Validate node types first
-        nodes = prompt.get("prompt", prompt).get("nodes", [])
-        info_result = self.object_info()
-        if not info_result.ok:
-            return info_result
+        # Validate node types from the workflow
+        workflow = prompt.get("prompt", prompt)
+        if isinstance(workflow, dict):
+            for _node_id, node_conf in workflow.items():
+                if isinstance(node_conf, dict):
+                    node_type = node_conf.get("class_type", "")
+                    if node_type:
+                        schema_result = self.get_node_schema(node_type)
+                        if not schema_result.ok:
+                            error = schema_result.error if schema_result.error != AdapterError.NONE else AdapterError.VALIDATION
+                            return ComfyUIResult(
+                                ok=False,
+                                error=error,
+                                message=schema_result.message or f"Unknown node type: '{node_type}'",
+                            )
 
-        available_nodes = set(info_result.data.keys())
-        for node in nodes:
-            node_type = node.get("type")
-            if node_type and node_type not in available_nodes:
-                return ComfyUIResult(
-                    ok=False,
-                    error=AdapterError.VALIDATION,
-                    message=f"Unknown node type: '{node_type}'",
-                )
+        # Submit
+        result = self.client.post_json("/prompt", prompt)
+        if not result.ok:
+            error = AdapterError.CONNECTION
+            if result.status and result.status >= 400 and result.status < 500:
+                error = AdapterError.VALIDATION
+            return ComfyUIResult(
+                ok=False,
+                error=error,
+                message=f"Prompt submission failed: {result.error}",
+            )
 
+        prompt_id = result.data.get("prompt_id") if isinstance(result.data, dict) else None
         return ComfyUIResult(
             ok=True,
-            message="Prompt validated (submission requires POST support)",
+            data={"prompt_id": prompt_id},
+            message=f"Prompt submitted: {prompt_id}",
         )
 
     # -----------------------------------------------------------------------

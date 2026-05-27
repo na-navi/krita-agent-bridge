@@ -33,11 +33,31 @@ from krita_agent_bridge.comfyui import (
 
 class _StubHandler(BaseHTTPRequestHandler):
     routes: dict[str, tuple[int, str]] = {}
+    post_routes: dict[str, tuple[int, str]] = {}
+    last_post_body: dict[str, Any] = {}
 
     def do_GET(self) -> None:  # noqa: N802
         key = self.path.split("?")[0].rstrip("/")
         if key in self.routes:
             status, body = self.routes[key]
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body.encode())
+        else:
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"error":"not found"}')
+
+    def do_POST(self) -> None:  # noqa: N802
+        content_length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(content_length).decode("utf-8") if content_length else ""
+        _StubHandler.last_post_body[self.path] = json.loads(raw) if raw else {}
+        key = self.path.rstrip("/")
+        routes = self.post_routes
+        if key in routes:
+            status, body = routes[key]
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -78,6 +98,8 @@ SAMPLE_OBJECT_INFO = json.dumps({
         "output": [{"type": "CONDITIONING", "name": "CONDITIONING"}],
     },
 })
+
+_OBJ = json.loads(SAMPLE_OBJECT_INFO)  # dict version for building responses
 
 
 # ---------------------------------------------------------------------------
@@ -299,5 +321,117 @@ class TestResolveOutputs:
         result = adapter.resolve_outputs("prompt1")
         assert not result.ok
         assert result.error == AdapterError.CONNECTION
+
+
+# ---------------------------------------------------------------------------
+# POST /prompt — submit_prompt tests
+# ---------------------------------------------------------------------------
+
+
+SAMPLE_WORKFLOW = {
+    "prompt": {
+        "1": {"class_type": "KSampler", "inputs": {"steps": 20}},
+        "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "a cat"}},
+    },
+    "client_id": "test-client",
+}
+
+
+class TestSubmitPrompt:
+    def test_successful_submission(self, adapter: ComfyUIAdapter) -> None:
+        _StubHandler.routes["/object_info/KSampler"] = (
+            200, json.dumps({"KSampler": _OBJ["KSampler"]})
+        )
+        _StubHandler.routes["/object_info/CLIPTextEncode"] = (
+            200, json.dumps({"CLIPTextEncode": _OBJ["CLIPTextEncode"]})
+        )
+        _StubHandler.post_routes["/prompt"] = (
+            200, json.dumps({"prompt_id": "abc-123", "number": 1, "node_errors": {}})
+        )
+        result = adapter.submit_prompt(SAMPLE_WORKFLOW)
+        assert result.ok
+        assert result.data["prompt_id"] == "abc-123"
+        assert "abc-123" in result.message
+
+    def test_post_body_sent_correctly(self, adapter: ComfyUIAdapter) -> None:
+        _StubHandler.routes["/object_info/KSampler"] = (
+            200, json.dumps({"KSampler": _OBJ["KSampler"]})
+        )
+        _StubHandler.routes["/object_info/CLIPTextEncode"] = (
+            200, json.dumps({"CLIPTextEncode": _OBJ["CLIPTextEncode"]})
+        )
+        _StubHandler.post_routes["/prompt"] = (
+            200, json.dumps({"prompt_id": "xyz", "number": 1, "node_errors": {}})
+        )
+        result = adapter.submit_prompt(SAMPLE_WORKFLOW)
+        assert result.ok
+        posted = _StubHandler.last_post_body.get("/prompt", {})
+        assert posted["client_id"] == "test-client"
+        assert "1" in posted["prompt"]
+
+    def test_unknown_node_type_rejected(self, adapter: ComfyUIAdapter) -> None:
+        bad_workflow = {
+            "prompt": {
+                "1": {"class_type": "FakeNode", "inputs": {}},
+            },
+            "client_id": "test",
+        }
+        _StubHandler.routes["/object_info/FakeNode"] = (200, '{}')
+        result = adapter.submit_prompt(bad_workflow)
+        assert not result.ok
+        assert result.error == AdapterError.VALIDATION
+        assert "FakeNode" in result.message
+
+    def test_connection_failure(self) -> None:
+        adapter = ComfyUIAdapter("http://127.0.0.1:1", timeout=0.5)
+        result = adapter.submit_prompt(SAMPLE_WORKFLOW)
+        assert not result.ok
+        assert result.error == AdapterError.CONNECTION
+
+    def test_server_4xx_returns_validation_error(self, adapter: ComfyUIAdapter) -> None:
+        _StubHandler.routes["/object_info/KSampler"] = (
+            200, json.dumps({"KSampler": _OBJ["KSampler"]})
+        )
+        _StubHandler.routes["/object_info/CLIPTextEncode"] = (
+            200, json.dumps({"CLIPTextEncode": _OBJ["CLIPTextEncode"]})
+        )
+        _StubHandler.post_routes["/prompt"] = (
+            400, json.dumps({"error": "invalid prompt format"})
+        )
+        result = adapter.submit_prompt(SAMPLE_WORKFLOW)
+        assert not result.ok
+        assert result.error == AdapterError.VALIDATION
+
+
+# ---------------------------------------------------------------------------
+# Client POST unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestClientPostJson:
+    def test_post_success(self, mock_server: str) -> None:
+        from krita_agent_bridge.client import JsonEndpointClient
+        _StubHandler.post_routes["/test"] = (200, '{"received":true}')
+        client = JsonEndpointClient(mock_server, timeout=2)
+        result = client.post_json("/test", {"key": "value"})
+        assert result.ok
+        assert result.status == 200
+        assert result.data == {"received": True}
+
+    def test_post_http_error(self, mock_server: str) -> None:
+        from krita_agent_bridge.client import JsonEndpointClient
+        _StubHandler.post_routes["/test"] = (422, '{"error":"bad"}')
+        client = JsonEndpointClient(mock_server, timeout=2)
+        result = client.post_json("/test", {"key": "value"})
+        assert not result.ok
+        assert result.status == 422
+
+    def test_post_connection_refused(self) -> None:
+        from krita_agent_bridge.client import JsonEndpointClient
+        client = JsonEndpointClient("http://127.0.0.1:1", timeout=0.5)
+        result = client.post_json("/test", {"key": "value"})
+        assert not result.ok
+        assert result.status is None
+        assert result.error is not None
 
 
