@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
-
 from .client import JsonEndpointClient
+from .doctor import run_doctor, format_summary
 
 DEFAULT_KRITA_API = "http://127.0.0.1:8900"
 DEFAULT_COMFYUI_API = "http://127.0.0.1:8188"
@@ -27,24 +27,26 @@ def command_status(args: argparse.Namespace) -> int:
 
 
 def command_doctor(args: argparse.Namespace) -> int:
-    krita = JsonEndpointClient(args.krita_api).get_json("/api/status")
-    comfy = JsonEndpointClient(args.comfyui_api).get_json("/object_info")
-    report = {
-        "krita_api": krita,
-        "comfyui_api": {
-            "ok": comfy.ok,
-            "url": comfy.url,
-            "status": comfy.status,
-            "node_count": len(comfy.data) if isinstance(comfy.data, dict) else None,
-            "error": comfy.error,
-        },
-    }
-    _print_result("doctor", report)
-    return 0 if krita.ok and comfy.ok else 2
+    report = run_doctor(
+        krita_api=args.krita_api,
+        comfyui_api=args.comfyui_api,
+        check_ports=(
+            args.krita_api == DEFAULT_KRITA_API
+            and args.comfyui_api == DEFAULT_COMFYUI_API
+        ),
+    )
+    if args.json:
+        print(json.dumps({"doctor": report.to_dict()}, ensure_ascii=False, indent=2))
+    else:
+        print(format_summary(report))
+    return report.exit_code
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="krita-agent")
+    parser = argparse.ArgumentParser(
+        prog="krita-agent",
+        description="External automation bridge for agent-driven Krita workflows",
+    )
     parser.add_argument("--krita-api", default=DEFAULT_KRITA_API)
     parser.add_argument("--comfyui-api", default=DEFAULT_COMFYUI_API)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -53,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     status.set_defaults(func=command_status)
 
     doctor = sub.add_parser("doctor", help="Run basic local diagnostics")
+    doctor.add_argument("--json", action="store_true", help="Output full report as JSON")
     doctor.set_defaults(func=command_doctor)
     return parser
 
