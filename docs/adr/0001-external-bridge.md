@@ -6,7 +6,7 @@ Accepted for initial experiment.
 
 ## Context
 
-The initial prototype connected an agent-driven flow through Krita, Krita AI Diffusion, and ComfyUI. Upstream feedback suggested that direct integration into the plugin would require careful planning and that a separate project may be better suited.
+The initial prototype explored agent-driven local Krita workflows with optional generation backends. An older fork-based extension was archived after it became clear that turning it into a practical upstream PR was not realistic. Upstream feedback also suggested that direct integration into an existing plugin would require careful planning and that a separate project may be better suited.
 
 ## Decision
 
@@ -16,7 +16,7 @@ The bridge will prefer public or stable-ish surfaces:
 
 - Krita Python/document APIs
 - local bridge commands
-- ComfyUI HTTP/WebSocket APIs
+- optional local backend APIs
 
 Krita AI Diffusion internals may be used only behind a narrow optional adapter with capability checks.
 
