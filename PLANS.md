@@ -2,7 +2,7 @@
 
 ## Direction
 
-Build `krita-agent-bridge` as an external automation project. The bridge may communicate with Krita AI Diffusion when present, but the plugin itself is not the primary integration surface.
+Build `krita-agent-bridge` as an external Krita scripting and diagnostics project. Optional local integrations may be detected when present, but Krita document operations and safety boundaries are the primary integration surface.
 
 ## Architecture sketch
 
@@ -17,8 +17,8 @@ krita-agent-bridge
   |-- diagnostics / doctor mode
   |-- adapters
       |-- Krita document adapter
-      |-- Krita AI Diffusion capability adapter
-      |-- ComfyUI adapter
+      |-- optional plugin capability adapter
+      |-- optional backend adapter
 ```
 
 ## Phase 0 — Planning and boundaries
@@ -31,7 +31,7 @@ krita-agent-bridge
 
 - `krita-agent status`
 - `krita-agent doctor`
-- detect Krita process, bridge availability, AI Diffusion availability, ComfyUI availability.
+- detect Krita process, bridge availability, optional plugin availability, optional backend availability.
 
 ## Phase 2 — Krita document MVP ✅
 
@@ -40,17 +40,17 @@ krita-agent-bridge
 - generated image import as a new layer
 - non-destructive default behavior
 
-## Phase 3 — AI Diffusion optional adapter ✅
+## Phase 3 — Optional plugin capability adapter ✅
 
-- detect plugin presence and version
+- detect Krita AI Diffusion plugin presence and version
 - query active model/capabilities through a narrow shim
 - mode switching (manual / watch / auto)
 - style list query
 - avoid depending on internal implementation details unless isolated
 
-## Phase 4 — ComfyUI adapter ✅
+## Phase 4 — Optional backend adapter ✅
 
-- inspect nodes and queue
+- inspect ComfyUI nodes and queue
 - submit known-safe workflows
 - map output files back to bridge artifacts
 
@@ -65,7 +65,7 @@ krita-agent-bridge
 
 - create/open document manually or via Krita API
 - capture state
-- generate through AI Diffusion or ComfyUI path
+- generate through an optional local integration path
 - apply result as a new layer
 - produce a machine-readable run report
 

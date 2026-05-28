@@ -2,11 +2,13 @@
 
 作成日: 2026-05-28
 
+旧 pi_api / fork 拡張は、upstream PR を前提に継続するのではなく、参考実装として archive 済みです。以後の実験は独立した外部ブリッジである `krita-agent-bridge` 側に移します。
+
 ## 概要の違い
 
 | | **pi_api (旧)** | **krita-agent-bridge (新)** |
 |---|---|---|
-| **形態** | Krita AI Diffusion プラグインに注入した `http.server` | 独立した Python パッケージ + CLI (`krita-agent`) |
+| **形態** | archived fork 拡張に注入した `http.server` | 独立した Python パッケージ + CLI (`krita-agent`) |
 | **依存** | Krita プロセス内で動作。Krita 必須 | 外部プロセス。Krita なしでも ComfyUI 単体で動く |
 | **起動条件** | `KRITA_AI_PI_API=1` 環境変数付き Krita 起動 | `pip install -e .` → `krita-agent` コマンド |
 | **ポート** | 8900（固定） | ComfyUI 8188 を直接叩く。Krita 8900 も診断対象 |
