@@ -66,7 +66,7 @@ Issue や Pull Request は歓迎します。バグ報告、設計相談、ユー
 | Prompt simplification / prepare layer | ✅ 実装済み | #17, #19 |
 | Job status monitoring | ✅ 実装済み | #21 |
 | Unified snapshot | ✅ 実装済み | #20 |
-| E2E smoke workflow | 📋 計画中 | #8 |
+| E2E smoke workflow | 🧪 実機検証待ち | #8, #35 |
 
 詳しくは `PLANS.md` を参照してください。
 

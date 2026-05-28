@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
+
 from .client import JsonEndpointClient
 from .doctor import run_doctor, format_summary
+from .e2e_smoke import run_smoke_workflow
 from .readiness import ReadinessProbe
 
 DEFAULT_KRITA_API = "http://127.0.0.1:8900"
@@ -69,6 +72,32 @@ def command_ready(args: argparse.Namespace) -> int:
     return 0 if report.ready else 1
 
 
+def command_smoke(args: argparse.Namespace) -> int:
+    result = run_smoke_workflow(
+        krita_api=args.krita_api,
+        comfyui_api=args.comfyui_api,
+        report_path=args.report,
+        output_path=args.output,
+        document_name=args.document_name,
+        positive=args.positive,
+        seed=args.seed,
+        checkpoint=args.checkpoint,
+        width=args.width,
+        height=args.height,
+        timeout=args.timeout,
+        request_timeout=args.request_timeout,
+        interval=args.interval,
+    )
+    if args.json:
+        print(json.dumps({"smoke": result.to_dict()}, ensure_ascii=False, indent=2))
+    else:
+        state = "passed" if result.ok else "failed"
+        print(f"E2E smoke {state}: {result.message}")
+        print(f"  report: {Path(result.report_path)}")
+        print(f"  output: {Path(result.output_path)}")
+    return 0 if result.ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="krita-agent",
@@ -85,14 +114,67 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--json", action="store_true", help="Output full report as JSON")
     doctor.set_defaults(func=command_doctor)
 
-    ready = sub.add_parser("ready", help="Check whether Krita + AI Diffusion + ComfyUI are generation-ready")
+    ready = sub.add_parser(
+        "ready",
+        help="Check whether Krita + AI Diffusion + ComfyUI are generation-ready",
+    )
     ready.add_argument("--json", action="store_true", help="Output readiness as JSON")
     ready.add_argument("--wait", action="store_true", help="Poll until ready or timeout")
-    ready.add_argument("--timeout", type=float, default=120.0, help="Maximum wait time when --wait is set")
-    ready.add_argument("--interval", type=float, default=1.0, help="Polling interval when --wait is set")
+    ready.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="Maximum wait time when --wait is set",
+    )
+    ready.add_argument(
+        "--interval",
+        type=float,
+        default=1.0,
+        help="Polling interval when --wait is set",
+    )
     ready.add_argument("--request-timeout", type=float, default=3.0, help="Per-request timeout")
-    ready.add_argument("--no-document", action="store_true", help="Do not require an active Krita document")
+    ready.add_argument(
+        "--no-document",
+        action="store_true",
+        help="Do not require an active Krita document",
+    )
     ready.set_defaults(func=command_ready)
+
+    smoke = sub.add_parser("smoke", help="Run the Krita + shim + ComfyUI E2E smoke workflow")
+    smoke.add_argument("--json", action="store_true", help="Output smoke report summary as JSON")
+    smoke.add_argument(
+        "--report",
+        default="smoke_report.json",
+        help="Path for the machine-readable report",
+    )
+    smoke.add_argument(
+        "--output",
+        default="smoke_output.png",
+        help="Path for the exported smoke PNG",
+    )
+    smoke.add_argument("--document-name", default="smoke", help="Temporary Krita document name")
+    smoke.add_argument(
+        "--positive",
+        default="1girl, test",
+        help="Positive prompt for the smoke generation",
+    )
+    smoke.add_argument("--seed", type=int, default=42, help="Generation seed")
+    smoke.add_argument(
+        "--checkpoint",
+        default=None,
+        help="ComfyUI checkpoint name; auto-detected when omitted",
+    )
+    smoke.add_argument("--width", type=int, default=1024, help="Smoke document and latent width")
+    smoke.add_argument("--height", type=int, default=1024, help="Smoke document and latent height")
+    smoke.add_argument(
+        "--timeout",
+        type=float,
+        default=300.0,
+        help="Maximum wait time for readiness and job completion",
+    )
+    smoke.add_argument("--interval", type=float, default=1.0, help="Polling interval")
+    smoke.add_argument("--request-timeout", type=float, default=10.0, help="Per-request timeout")
+    smoke.set_defaults(func=command_smoke)
     return parser
 
 

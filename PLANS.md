@@ -63,6 +63,7 @@ krita-agent-bridge
 
 ## Phase 6 — E2E smoke workflow 📋
 
+- `krita-agent smoke` runner and JSON report
 - create/open document manually or via Krita API
 - capture state
 - generate through an optional local integration path
