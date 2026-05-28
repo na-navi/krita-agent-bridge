@@ -53,20 +53,25 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# ── Resolve ComfyUI URL from AI Diffusion plugin settings ────────────────
-$ComfyUiApi = "http://127.0.0.1:8000"  # default managed mode port
-$SettingsPath = "$env:APPDATA\krita\ai_diffusion\settings.json"
-if (Test-Path $SettingsPath) {
+# ── Resolve ComfyUI URL ─────────────────────────────────────────────────
+# The AI Diffusion plugin's server_url (settings.json) is its own management
+# port (default 8000), NOT the ComfyUI API port.  The actual ComfyUI API
+# listens on 8188 (standard).  Probe both and use whichever responds.
+$ComfyCandidates = @(
+    "http://127.0.0.1:8188",
+    "http://127.0.0.1:8000"
+)
+$ComfyUiApi = $ComfyCandidates[0]  # fallback
+foreach ($url in $ComfyCandidates) {
     try {
-        $settings = Get-Content $SettingsPath -ErrorAction Stop | ConvertFrom-Json
-        $url = $settings.server_url
-        if ($url) {
-            # settings.json stores "host:port" without scheme
-            $ComfyUiApi = if ($url -match '^https?://') { $url } else { "http://$url" }
-            Write-Verbose "ComfyUI URL from AI Diffusion settings: $ComfyUiApi"
+        $resp = Invoke-WebRequest -Uri "$url/system_stats" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+        if ($resp.StatusCode -eq 200) {
+            $ComfyUiApi = $url
+            Write-Verbose "ComfyUI API detected at: $url"
+            break
         }
     } catch {
-        Write-Verbose "Could not parse AI Diffusion settings, using default: $ComfyUiApi"
+        Write-Verbose "ComfyUI not at $url"
     }
 }
 

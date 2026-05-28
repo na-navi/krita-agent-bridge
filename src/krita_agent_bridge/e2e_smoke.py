@@ -186,20 +186,10 @@ def run_smoke_workflow(
         if not waited.ok:
             return finish(False, "job did not finish successfully")
 
-        history = client.get_json("/api/jobs/history")
-        output_from_history = _output_path_for_job(history, job_id)
-        record("job_history", history.ok and bool(output_from_history), history)
-        if not history.ok or not output_from_history:
-            return finish(False, "job history did not include an output path")
-
-        imported = client.post_json(
-            "/api/document/import-layer",
-            {"image_path": output_from_history, "layer_name": "Smoke"},
-        )
-        record("import_layer", imported.ok, imported)
-        if not imported.ok:
-            return finish(False, "generated output import failed")
-
+        # AI Diffusion writes the generated image directly onto the Krita
+        # canvas (it uses ComfyUI's HTTP image transport, not local files),
+        # so we skip the job_history → import-layer round-trip and export
+        # the canvas directly.
         exported = client.post_json("/api/document/export", {"output_path": str(output_file)})
         export_ok = exported.ok and output_file.exists() and output_file.stat().st_size > 1024
         record("export_canvas", export_ok, exported)
@@ -222,15 +212,6 @@ def _checkpoint_from_comfy(comfy: ComfyUIAdapter) -> str:
     if not choices:
         raise RuntimeError("No ComfyUI checkpoints available")
     return str(choices[0])
-
-
-def _output_path_for_job(history: EndpointResult, job_id: str) -> str:
-    if not history.ok or not isinstance(history.data, dict):
-        return ""
-    for item in history.data.get("history", []):
-        if isinstance(item, dict) and str(item.get("job_id", "")) == job_id:
-            return str(item.get("output_path", ""))
-    return ""
 
 
 def _jsonable(value: Any) -> Any:
