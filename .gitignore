@@ -29,3 +29,6 @@ smoke_*.*
 output/
 reports/
 local-data/
+
+# Project planning lives in GitHub Issues, not local issue mirrors.
+docs/issues/

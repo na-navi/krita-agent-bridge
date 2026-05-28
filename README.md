@@ -61,7 +61,7 @@ Issue や Pull Request は歓迎します。バグ報告、設計相談、ユー
 
 ## 実装状況
 
-| モジュール | 状態 | Issue |
+| モジュール | 状態 | GitHub Issue |
 | --- | --- | --- |
 | CLI / diagnostics (`doctor`, `status`) | ✅ 実装済み | #2, #7 |
 | ComfyUI adapter | ✅ 実装済み | #6 |

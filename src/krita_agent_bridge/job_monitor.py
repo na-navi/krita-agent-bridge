@@ -51,6 +51,7 @@ class JobStatus:
     job_id: str
     state: str  # queued, executing, finished, error
     prompt_id: str = ""
+    request_id: str = ""
     progress: float = 0.0  # 0.0–1.0
 
 
@@ -110,6 +111,7 @@ class JobMonitor:
                 JobStatus(
                     job_id=str(j["job_id"]),
                     prompt_id=str(j.get("prompt_id", "")),
+                    request_id=str(j.get("request_id", "")),
                     state=str(j.get("state", "unknown")),
                     progress=float(j.get("progress", 0.0)),
                 )
@@ -161,7 +163,7 @@ class JobMonitor:
             )
 
         for job in summary.jobs:
-            if job.job_id == job_id:
+            if job.job_id == job_id or job.request_id == job_id:
                 return JobResult(
                     ok=True,
                     data=job,

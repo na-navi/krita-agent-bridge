@@ -21,9 +21,13 @@ from krita_agent_bridge.prepare import (
     PreparedWorkflow,
     build_workflow,
     prepare_from_dict,
+    resolve_checkpoint,
     set_allowed_styles,
     validate_prepare_input,
 )
+
+
+CHECKPOINT = "real-model.safetensors"
 
 
 # ---------------------------------------------------------------------------
@@ -43,6 +47,9 @@ class TestValidateDict:
             "seed": 42,
             "strength": 0.8,
             "style": "anime",
+            "checkpoint": CHECKPOINT,
+            "width": 1024,
+            "height": 768,
         })
         assert result.ok
 
@@ -76,6 +83,17 @@ class TestValidateDict:
         result = validate_prepare_input({"positive": "test", "negative": 123})
         assert not result.ok
         assert "negative" in result.message
+
+    def test_checkpoint_must_be_non_empty_string(self) -> None:
+        result = validate_prepare_input({"positive": "test", "checkpoint": ""})
+        assert not result.ok
+        assert "checkpoint" in result.message
+
+    def test_width_height_must_be_positive_ints(self) -> None:
+        assert not validate_prepare_input({"positive": "test", "width": 0}).ok
+        assert not validate_prepare_input({"positive": "test", "height": -1}).ok
+        assert not validate_prepare_input({"positive": "test", "width": 1.5}).ok
+        assert not validate_prepare_input({"positive": "test", "height": True}).ok
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +228,7 @@ class TestPrepareInput:
 
 class TestBuildWorkflow:
     def test_basic_workflow_structure(self) -> None:
-        inp = PrepareInput(positive="1girl, cat ears")
+        inp = PrepareInput(positive="1girl, cat ears", checkpoint=CHECKPOINT)
         result = build_workflow(inp)
         assert result.ok
         assert isinstance(result.data, PreparedWorkflow)
@@ -221,11 +239,12 @@ class TestBuildWorkflow:
         assert "6" in wf  # CLIP positive
         assert "7" in wf  # CLIP negative
         assert "4" in wf  # CheckpointLoader
+        assert "5" in wf  # EmptyLatentImage
         assert "8" in wf  # VAEDecode
         assert "9" in wf  # SaveImage
 
     def test_positive_in_workflow(self) -> None:
-        inp = PrepareInput(positive="1girl, sunset")
+        inp = PrepareInput(positive="1girl, sunset", checkpoint=CHECKPOINT)
         result = build_workflow(inp)
         assert result.ok
         wf = result.data.workflow
@@ -233,42 +252,42 @@ class TestBuildWorkflow:
         assert "1girl, sunset" in positive_text
 
     def test_negative_in_workflow(self) -> None:
-        inp = PrepareInput(positive="test", negative="bad quality")
+        inp = PrepareInput(positive="test", negative="bad quality", checkpoint=CHECKPOINT)
         result = build_workflow(inp)
         assert result.ok
         wf = result.data.workflow
         assert wf["7"]["inputs"]["text"] == "bad quality"
 
     def test_seed_in_workflow(self) -> None:
-        inp = PrepareInput(positive="test", seed=42)
+        inp = PrepareInput(positive="test", seed=42, checkpoint=CHECKPOINT)
         result = build_workflow(inp)
         assert result.ok
         wf = result.data.workflow
         assert wf["3"]["inputs"]["seed"] == 42
 
     def test_default_seed_negative_one(self) -> None:
-        inp = PrepareInput(positive="test")
+        inp = PrepareInput(positive="test", checkpoint=CHECKPOINT)
         result = build_workflow(inp)
         assert result.ok
         wf = result.data.workflow
         assert wf["3"]["inputs"]["seed"] == -1
 
     def test_strength_maps_to_cfg(self) -> None:
-        inp = PrepareInput(positive="test", strength=0.5)
+        inp = PrepareInput(positive="test", strength=0.5, checkpoint=CHECKPOINT)
         result = build_workflow(inp)
         assert result.ok
         wf = result.data.workflow
         assert wf["3"]["inputs"]["cfg"] == 0.5
 
     def test_default_strength(self) -> None:
-        inp = PrepareInput(positive="test")
+        inp = PrepareInput(positive="test", checkpoint=CHECKPOINT)
         result = build_workflow(inp)
         assert result.ok
         wf = result.data.workflow
         assert wf["3"]["inputs"]["cfg"] == 7.0
 
     def test_style_prepended_to_positive(self) -> None:
-        inp = PrepareInput(positive="1girl", style="anime")
+        inp = PrepareInput(positive="1girl", style="anime", checkpoint=CHECKPOINT)
         result = build_workflow(inp)
         assert result.ok
         wf = result.data.workflow
@@ -277,7 +296,7 @@ class TestBuildWorkflow:
         assert "1girl" in positive_text
 
     def test_no_style_no_prefix(self) -> None:
-        inp = PrepareInput(positive="1girl")
+        inp = PrepareInput(positive="1girl", checkpoint=CHECKPOINT)
         result = build_workflow(inp)
         assert result.ok
         wf = result.data.workflow
@@ -285,7 +304,13 @@ class TestBuildWorkflow:
         assert positive_text == "1girl"
 
     def test_summary_contains_input(self) -> None:
-        inp = PrepareInput(positive="1girl", seed=42, strength=0.8, style="anime")
+        inp = PrepareInput(
+            positive="1girl",
+            seed=42,
+            strength=0.8,
+            style="anime",
+            checkpoint=CHECKPOINT,
+        )
         result = build_workflow(inp)
         assert result.ok
         summary = result.data.summary
@@ -293,13 +318,75 @@ class TestBuildWorkflow:
         assert summary["seed"] == 42
         assert summary["strength"] == 0.8
         assert summary["style"] == "anime"
+        assert summary["checkpoint"] == CHECKPOINT
         assert "nodes" in summary
+
+    def test_checkpoint_in_workflow(self) -> None:
+        inp = PrepareInput(positive="test", checkpoint=CHECKPOINT)
+        result = build_workflow(inp)
+        assert result.ok
+        assert result.data.workflow["4"]["inputs"]["ckpt_name"] == CHECKPOINT
+
+    def test_empty_latent_image_uses_dimensions(self) -> None:
+        inp = PrepareInput(positive="test", checkpoint=CHECKPOINT, width=512, height=768)
+        result = build_workflow(inp)
+        assert result.ok
+        latent = result.data.workflow["5"]["inputs"]
+        assert latent == {"width": 512, "height": 768, "batch_size": 1}
+        assert result.data.workflow["3"]["inputs"]["latent_image"] == ["5", 0]
+
+    def test_checkpoint_required_without_adapter(self) -> None:
+        inp = PrepareInput(positive="test")
+        result = build_workflow(inp)
+        assert not result.ok
+        assert "checkpoint" in result.message
 
     def test_invalid_input_returns_error(self) -> None:
         # Build with invalid input — should fail at build_workflow
         # (PrepareInput would reject at construction, so use dict path)
         result = prepare_from_dict({"positive": "", "seed": -1})
         assert not result.ok
+
+
+class _ObjectInfoResult:
+    def __init__(self, ok: bool, data: object = None, message: str = "") -> None:
+        self.ok = ok
+        self.data = data
+        self.message = message
+
+
+class _ComfyStub:
+    def object_info(self, node_filter: str | None = None) -> _ObjectInfoResult:
+        assert node_filter == "CheckpointLoaderSimple"
+        return _ObjectInfoResult(
+            True,
+            {
+                "CheckpointLoaderSimple": {
+                    "input": {
+                        "required": {
+                            "ckpt_name": [["first.safetensors", "second.safetensors"], {}]
+                        }
+                    }
+                }
+            },
+        )
+
+
+class TestResolveCheckpoint:
+    def test_explicit_checkpoint_wins(self) -> None:
+        result = resolve_checkpoint(CHECKPOINT, comfyui_adapter=_ComfyStub())
+        assert result.ok
+        assert result.data == CHECKPOINT
+
+    def test_resolves_first_available_checkpoint(self) -> None:
+        result = resolve_checkpoint(None, comfyui_adapter=_ComfyStub())
+        assert result.ok
+        assert result.data == "first.safetensors"
+
+    def test_build_workflow_resolves_checkpoint_from_adapter(self) -> None:
+        result = build_workflow(PrepareInput(positive="test"), comfyui_adapter=_ComfyStub())
+        assert result.ok
+        assert result.data.workflow["4"]["inputs"]["ckpt_name"] == "first.safetensors"
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +402,7 @@ class TestPrepareFromDict:
             "seed": 42,
             "strength": 0.8,
             "style": "anime",
+            "checkpoint": CHECKPOINT,
         })
         assert result.ok
         assert isinstance(result.data, PreparedWorkflow)
@@ -327,7 +415,7 @@ class TestPrepareFromDict:
         assert "steps" in result.message
 
     def test_minimal_input(self) -> None:
-        result = prepare_from_dict({"positive": "test"})
+        result = prepare_from_dict({"positive": "test", "checkpoint": CHECKPOINT})
         assert result.ok
         wf = result.data.workflow
         assert "3" in wf

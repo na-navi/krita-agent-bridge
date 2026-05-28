@@ -47,6 +47,9 @@ class PrepareInput:
     seed: int | None = None
     strength: float | None = None
     style: str | None = None
+    checkpoint: str | None = None
+    width: int = 1024
+    height: int = 1024
 
     def __post_init__(self) -> None:
         # Validate on construction so errors surface immediately
@@ -72,7 +75,7 @@ class PreparedWorkflow:
 
 # Known allowed fields on PrepareInput
 _KNOWN_FIELDS = frozenset({
-    "positive", "negative", "seed", "strength", "style",
+    "positive", "negative", "seed", "strength", "style", "checkpoint", "width", "height",
 })
 
 # Allowed style names (extensible via set_allowed_styles)
@@ -114,12 +117,18 @@ def validate_prepare_input(inp: PrepareInput | dict[str, Any]) -> PrepareResult:
         seed = inp.get("seed")
         strength = inp.get("strength")
         style = inp.get("style")
+        checkpoint = inp.get("checkpoint")
+        width = inp.get("width", 1024)
+        height = inp.get("height", 1024)
     else:
         positive = inp.positive
         negative = inp.negative
         seed = inp.seed
         strength = inp.strength
         style = inp.style
+        checkpoint = inp.checkpoint
+        width = inp.width
+        height = inp.height
 
     # positive is required and non-empty
     if not isinstance(positive, str) or not positive.strip():
@@ -183,6 +192,30 @@ def validate_prepare_input(inp: PrepareInput | dict[str, Any]) -> PrepareResult:
                 f"Available: {', '.join(sorted(_ALLOWED_STYLES))}",
             )
 
+    # checkpoint: if provided, must be a non-empty string.
+    if checkpoint is not None:
+        if not isinstance(checkpoint, str) or not checkpoint.strip():
+            return PrepareResult(
+                ok=False,
+                error=PrepareError.VALIDATION,
+                message="Field 'checkpoint' must be a non-empty string or null",
+            )
+
+    # width/height: positive integers.
+    for field_name, value in (("width", width), ("height", height)):
+        if not isinstance(value, int) or isinstance(value, bool):
+            return PrepareResult(
+                ok=False,
+                error=PrepareError.VALIDATION,
+                message=f"Field '{field_name}' must be a positive integer",
+            )
+        if value <= 0:
+            return PrepareResult(
+                ok=False,
+                error=PrepareError.VALIDATION,
+                message=f"Field '{field_name}' must be a positive integer",
+            )
+
     return PrepareResult(ok=True, message="Input validated")
 
 
@@ -195,11 +228,77 @@ _NODE_CLIP_POSITIVE = "6"
 _NODE_CLIP_NEGATIVE = "7"
 _NODE_KSAMPLER = "3"
 _NODE_CHECKPOINT = "4"
+_NODE_EMPTY_LATENT = "5"
 _NODE_VAE_DECODE = "8"
 _NODE_SAVE_IMAGE = "9"
 
 
-def build_workflow(inp: PrepareInput) -> PrepareResult:
+def _first_checkpoint_from_object_info(data: Any) -> str | None:
+    """Extract the first checkpoint choice from ComfyUI object_info data."""
+    if not isinstance(data, dict):
+        return None
+
+    node_info = data.get("CheckpointLoaderSimple")
+    if not isinstance(node_info, dict) and len(data) == 1:
+        only_value = next(iter(data.values()))
+        if isinstance(only_value, dict):
+            node_info = only_value
+    if not isinstance(node_info, dict):
+        return None
+
+    required = node_info.get("input", {}).get("required", {})
+    ckpt_name = required.get("ckpt_name")
+    choices = ckpt_name[0] if isinstance(ckpt_name, (list, tuple)) and ckpt_name else None
+    if not isinstance(choices, (list, tuple)):
+        return None
+
+    for choice in choices:
+        if isinstance(choice, str) and choice.strip():
+            return choice
+    return None
+
+
+def resolve_checkpoint(checkpoint: str | None, comfyui_adapter: Any = None) -> PrepareResult:
+    """Resolve a checkpoint name without falling back to an invalid placeholder."""
+    if checkpoint is not None:
+        return PrepareResult(ok=True, data=checkpoint.strip())
+
+    if comfyui_adapter is None or not hasattr(comfyui_adapter, "object_info"):
+        return PrepareResult(
+            ok=False,
+            error=PrepareError.VALIDATION,
+            message="Field 'checkpoint' is required when no ComfyUI adapter is available",
+        )
+
+    try:
+        result = comfyui_adapter.object_info("CheckpointLoaderSimple")
+    except Exception as exc:  # pragma: no cover - defensive boundary around external adapter
+        return PrepareResult(
+            ok=False,
+            error=PrepareError.VALIDATION,
+            message=f"Could not resolve checkpoint from ComfyUI object_info: {exc}",
+        )
+
+    if not getattr(result, "ok", False):
+        message = getattr(result, "message", "")
+        return PrepareResult(
+            ok=False,
+            error=PrepareError.VALIDATION,
+            message=message or "Could not fetch CheckpointLoaderSimple object_info",
+        )
+
+    resolved = _first_checkpoint_from_object_info(getattr(result, "data", None))
+    if resolved is None:
+        return PrepareResult(
+            ok=False,
+            error=PrepareError.VALIDATION,
+            message="No checkpoints found in CheckpointLoaderSimple object_info",
+        )
+
+    return PrepareResult(ok=True, data=resolved)
+
+
+def build_workflow(inp: PrepareInput, comfyui_adapter: Any = None) -> PrepareResult:
     """Build a ComfyUI workflow JSON from a PrepareInput.
 
     Uses a known-safe template:
@@ -220,6 +319,10 @@ def build_workflow(inp: PrepareInput) -> PrepareResult:
     negative_text = inp.negative or ""
     seed = inp.seed if inp.seed is not None else -1  # -1 = random
     cfg_strength = inp.strength if inp.strength is not None else 7.0
+    checkpoint_result = resolve_checkpoint(inp.checkpoint, comfyui_adapter=comfyui_adapter)
+    if not checkpoint_result.ok:
+        return checkpoint_result
+    checkpoint_name = str(checkpoint_result.data)
 
     # Style prefix for positive prompt (if provided)
     style_prefix = f"{inp.style}, " if inp.style else ""
@@ -228,7 +331,15 @@ def build_workflow(inp: PrepareInput) -> PrepareResult:
         _NODE_CHECKPOINT: {
             "class_type": "CheckpointLoaderSimple",
             "inputs": {
-                "ckpt_name": "model.safetensors",
+                "ckpt_name": checkpoint_name,
+            },
+        },
+        _NODE_EMPTY_LATENT: {
+            "class_type": "EmptyLatentImage",
+            "inputs": {
+                "width": inp.width,
+                "height": inp.height,
+                "batch_size": 1,
             },
         },
         _NODE_CLIP_POSITIVE: {
@@ -257,7 +368,7 @@ def build_workflow(inp: PrepareInput) -> PrepareResult:
                 "model": [_NODE_CHECKPOINT, 0],
                 "positive": [_NODE_CLIP_POSITIVE, 0],
                 "negative": [_NODE_CLIP_NEGATIVE, 0],
-                "latent_image": ["5", 0],
+                "latent_image": [_NODE_EMPTY_LATENT, 0],
             },
         },
         _NODE_VAE_DECODE: {
@@ -282,6 +393,9 @@ def build_workflow(inp: PrepareInput) -> PrepareResult:
         "seed": seed,
         "strength": inp.strength,
         "style": inp.style,
+        "checkpoint": checkpoint_name,
+        "width": inp.width,
+        "height": inp.height,
         "nodes": list(workflow.keys()),
     }
 
@@ -312,6 +426,9 @@ def prepare_from_dict(fields: dict[str, Any]) -> PrepareResult:
             seed=fields.get("seed"),
             strength=fields.get("strength"),
             style=fields.get("style"),
+            checkpoint=fields.get("checkpoint"),
+            width=fields.get("width", 1024),
+            height=fields.get("height", 1024),
         )
     except ValueError as exc:
         return PrepareResult(
