@@ -27,32 +27,41 @@ krita-agent-bridge
 - Define what is stable API vs internal API.
 - Define safety and local-only assumptions.
 
-## Phase 1 — CLI and diagnostics MVP
+## Phase 1 — CLI and diagnostics MVP ✅
 
 - `krita-agent status`
 - `krita-agent doctor`
 - detect Krita process, bridge availability, AI Diffusion availability, ComfyUI availability.
 
-## Phase 2 — Krita document MVP
+## Phase 2 — Krita document MVP ✅
 
 - active document info
 - canvas export
 - generated image import as a new layer
 - non-destructive default behavior
 
-## Phase 3 — AI Diffusion optional adapter
+## Phase 3 — AI Diffusion optional adapter ✅
 
 - detect plugin presence and version
 - query active model/capabilities through a narrow shim
+- mode switching (manual / watch / auto)
+- style list query
 - avoid depending on internal implementation details unless isolated
 
-## Phase 4 — ComfyUI adapter
+## Phase 4 — ComfyUI adapter ✅
 
 - inspect nodes and queue
 - submit known-safe workflows
 - map output files back to bridge artifacts
 
-## Phase 5 — E2E smoke workflow
+## Phase 5 — Integration layers ✅
+
+- prompt simplification layer (prepare)
+- parameter shortcut wrapper (seed, strength, style)
+- job status monitoring bridge (prompt_id → job_id)
+- unified snapshot endpoint
+
+## Phase 6 — E2E smoke workflow 📋
 
 - create/open document manually or via Krita API
 - capture state
