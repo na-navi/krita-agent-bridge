@@ -8,6 +8,7 @@ from .bootstrap import bootstrap_test_mode
 from .client import JsonEndpointClient
 from .doctor import run_doctor, format_summary
 from .e2e_smoke import run_smoke_workflow
+from .polling_policy import MAX_POLL_SECONDS, clamp_poll_timeout
 from .readiness import ReadinessProbe
 
 DEFAULT_KRITA_API = "http://127.0.0.1:8900"
@@ -55,7 +56,7 @@ def command_ready(args: argparse.Namespace) -> int:
     )
     if args.wait:
         report = probe.wait(
-            timeout=args.timeout,
+            timeout=clamp_poll_timeout(args.timeout, label="ready"),
             interval=args.interval,
             require_document=not args.no_document,
         )
@@ -85,7 +86,7 @@ def command_smoke(args: argparse.Namespace) -> int:
         checkpoint=args.checkpoint,
         width=args.width,
         height=args.height,
-        timeout=args.timeout,
+        timeout=clamp_poll_timeout(args.timeout, label="smoke"),
         request_timeout=args.request_timeout,
         interval=args.interval,
     )
@@ -107,7 +108,7 @@ def command_bootstrap(args: argparse.Namespace) -> int:
         document_name=args.document_name,
         width=args.width,
         height=args.height,
-        timeout=args.timeout,
+        timeout=clamp_poll_timeout(args.timeout, label="bootstrap"),
         interval=args.interval,
         request_timeout=args.request_timeout,
         create_document=not args.no_document,
@@ -147,8 +148,11 @@ def build_parser() -> argparse.ArgumentParser:
     ready.add_argument(
         "--timeout",
         type=float,
-        default=120.0,
-        help="Maximum wait time when --wait is set",
+        default=MAX_POLL_SECONDS,
+        help=(
+            f"Maximum wait time when --wait is set. Capped at {MAX_POLL_SECONDS:.0f}s "
+            "(2-min SLO); set KRITA_AGENT_ALLOW_LONG_POLL=1 to bypass."
+        ),
     )
     ready.add_argument(
         "--interval",
@@ -193,8 +197,12 @@ def build_parser() -> argparse.ArgumentParser:
     smoke.add_argument(
         "--timeout",
         type=float,
-        default=300.0,
-        help="Maximum wait time for readiness and job completion",
+        default=MAX_POLL_SECONDS,
+        help=(
+            "Maximum wait time for readiness and job completion. "
+            f"Capped at {MAX_POLL_SECONDS:.0f}s (2-min SLO); "
+            "set KRITA_AGENT_ALLOW_LONG_POLL=1 to bypass."
+        ),
     )
     smoke.add_argument("--interval", type=float, default=1.0, help="Polling interval")
     smoke.add_argument("--request-timeout", type=float, default=10.0, help="Per-request timeout")
@@ -213,7 +221,15 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--document-name", default="smoke-bootstrap")
     bootstrap.add_argument("--width", type=int, default=1024)
     bootstrap.add_argument("--height", type=int, default=1024)
-    bootstrap.add_argument("--timeout", type=float, default=180.0)
+    bootstrap.add_argument(
+        "--timeout",
+        type=float,
+        default=MAX_POLL_SECONDS,
+        help=(
+            f"Maximum wait time. Capped at {MAX_POLL_SECONDS:.0f}s (2-min SLO); "
+            "set KRITA_AGENT_ALLOW_LONG_POLL=1 to bypass."
+        ),
+    )
     bootstrap.add_argument("--interval", type=float, default=1.0)
     bootstrap.add_argument("--request-timeout", type=float, default=3.0)
     bootstrap.add_argument(

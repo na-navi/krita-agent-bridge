@@ -56,7 +56,7 @@ def run_smoke_workflow(
     checkpoint: str | None = None,
     width: int = 1024,
     height: int = 1024,
-    timeout: float = 300.0,
+    timeout: float = 120.0,
     request_timeout: float = 10.0,
     interval: float = 1.0,
 ) -> SmokeResult:
