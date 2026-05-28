@@ -20,6 +20,9 @@ build/
 # Node / misc
 node_modules/
 
+# E2E smoke artifacts
+smoke_*.*
+
 # Environment / local output
 .env
 *.log
