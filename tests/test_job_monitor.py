@@ -85,7 +85,7 @@ SAMPLE_JOBS = json.dumps({
     "jobs": [
         {"job_id": "j1", "prompt_id": "p1", "state": "queued", "progress": 0.0},
         {"job_id": "j2", "prompt_id": "p2", "state": "executing", "progress": 0.5},
-        {"job_id": "j3", "prompt_id": "p3", "state": "finished", "progress": 1.0},
+        {"job_id": "j3", "prompt_id": "p3", "request_id": "r3", "state": "finished", "progress": 1.0},
         {"job_id": "j4", "prompt_id": "p4", "state": "finished", "progress": 1.0},
     ],
 })
@@ -123,6 +123,7 @@ class TestJobs:
         assert isinstance(job, JobStatus)
         assert job.job_id == "j1"
         assert job.prompt_id == "p1"
+        assert job.request_id == ""
         assert job.state == "queued"
         assert job.progress == 0.0
 
@@ -180,6 +181,13 @@ class TestGetJobStatus:
         result = monitor.job_status("nonexistent")
         assert not result.ok
         assert result.error == JobError.NOT_FOUND
+
+    def test_found_by_request_id(self, monitor: JobMonitor) -> None:
+        _StubHandler.routes["/api/jobs"] = (200, SAMPLE_JOBS)
+        result = monitor.job_status("r3")
+        assert result.ok
+        assert result.data.job_id == "j3"
+        assert result.data.request_id == "r3"
 
     def test_empty_job_id(self, monitor: JobMonitor) -> None:
         result = monitor.job_status("")
@@ -283,6 +291,16 @@ class TestWaitForJob:
         result = monitor.wait_for_job("j1", timeout=2.0, interval=0.05)
         assert not result.ok
         assert result.data.state == "error"
+
+    def test_wait_for_request_id(self, monitor: JobMonitor) -> None:
+        _StubHandler.routes["/api/jobs"] = (200, json.dumps({
+            "jobs": [
+                {"job_id": "real-job", "request_id": "request-1", "state": "finished", "progress": 1.0},
+            ],
+        }))
+        result = monitor.wait_for_job("request-1", timeout=2.0, interval=0.05)
+        assert result.ok
+        assert result.data.job_id == "real-job"
 
 
 # ---------------------------------------------------------------------------

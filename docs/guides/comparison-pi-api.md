@@ -56,7 +56,7 @@ ComfyUI アダプタだけでも完結。Krita が落ちても・なくても画
 
 ### ドキュメント整備
 
-ADR 9 件、safety・recipes・issues の構造化ドキュメント。旧は SKILL.md のみ。
+ADR、safety、recipes、GitHub Issues による管理。旧は SKILL.md のみ。
 
 ### stdlib-only
 

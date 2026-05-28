@@ -19,3 +19,6 @@ line-length = 100
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+markers = [
+    "integration: tests that require running Krita, ComfyUI, or other local services",
+]

@@ -71,4 +71,4 @@ krita-agent-bridge
 
 ## Review rule
 
-Each issue should be small enough to review independently. Prefer adapters and tests over broad rewrites.
+Each GitHub issue or PR should be small enough to review independently. Prefer adapters and tests over broad rewrites.
