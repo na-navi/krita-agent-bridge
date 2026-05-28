@@ -189,6 +189,43 @@ class KritaDocumentOps:
         result = OperationResult(ok, message, error="" if ok else "krita_error")
         return self._record("close_document", result)
 
+    def quit_application(self, policy: str = "cancel", delay_ms: int = 0) -> OperationResult:
+        """Trigger Krita's normal quit action and answer the save prompt for automation tests."""
+        valid = {"cancel", "discard", "save"}
+        normalized = (policy or "").strip().lower()
+        if normalized not in valid:
+            result = OperationResult(
+                False,
+                "Quit policy must be cancel, discard, or save",
+                error="validation",
+            )
+            return self._record("quit_application", result)
+        if self.app is None:
+            result = OperationResult(False, "Krita API unavailable", error="krita_unavailable")
+            return self._record("quit_application", result)
+
+        try:
+            scheduled = self._schedule_quit_dialog_policy(normalized, max(0, int(delay_ms)))
+            action = self.app.action("file_quit")
+            if action is None:
+                result = OperationResult(False, "Krita file_quit action not found", error="not_found")
+                return self._record("quit_application", result)
+            action.trigger()
+        except Exception as exc:
+            result = OperationResult(False, f"Quit failed: {exc}", error="krita_error")
+            return self._record("quit_application", result)
+
+        result = OperationResult(
+            True,
+            "Quit action triggered",
+            data={
+                "status": "scheduled",
+                "policy": normalized,
+                "dialog_handler_scheduled": scheduled,
+            },
+        )
+        return self._record("quit_application", result)
+
     def dirty_documents(self) -> OperationResult:
         docs = []
         for doc in self._documents():
@@ -314,6 +351,47 @@ class KritaDocumentOps:
         except Exception:
             doc = self._active_document()
             return [doc] if doc is not None else []
+
+    def _schedule_quit_dialog_policy(self, policy: str, delay_ms: int) -> bool:
+        try:
+            from PyQt5.QtCore import QTimer  # type: ignore
+            from PyQt5.QtWidgets import QApplication, QDialogButtonBox  # type: ignore
+        except Exception:
+            try:
+                from PyQt6.QtCore import QTimer  # type: ignore
+                from PyQt6.QtWidgets import QApplication, QDialogButtonBox  # type: ignore
+            except Exception:
+                try:
+                    from krita import QApplication, QDialogButtonBox, QTimer  # type: ignore
+                except Exception:
+                    return False
+
+        button_names = {
+            "cancel": ("Cancel",),
+            "discard": ("Discard", "No"),
+            "save": ("Save", "Yes"),
+        }[policy]
+
+        def standard_button(name: str) -> Any:
+            standard = getattr(QDialogButtonBox, "StandardButton", QDialogButtonBox)
+            return getattr(standard, name, getattr(QDialogButtonBox, name, None))
+
+        def click_dialog(attempt: int = 0) -> None:
+            dialog = QApplication.activeModalWidget()
+            if dialog is not None:
+                button_box = dialog.findChild(QDialogButtonBox)
+                if button_box is not None:
+                    for name in button_names:
+                        button_id = standard_button(name)
+                        button = button_box.button(button_id) if button_id is not None else None
+                        if button is not None:
+                            button.click()
+                            return
+            if attempt < 20:
+                QTimer.singleShot(50, lambda: click_dialog(attempt + 1))
+
+        QTimer.singleShot(delay_ms, click_dialog)
+        return True
 
     def _metadata(self, doc: Any) -> dict[str, Any]:
         return {

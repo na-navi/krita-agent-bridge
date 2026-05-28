@@ -108,9 +108,18 @@ class FakeWindow:
         return
 
 
+class FakeAction:
+    def __init__(self) -> None:
+        self.triggered = False
+
+    def trigger(self) -> None:
+        self.triggered = True
+
+
 class FakeApp:
     def __init__(self) -> None:
         self.doc = FakeDocument()
+        self.quit_action = FakeAction()
 
     def activeDocument(self) -> FakeDocument:  # noqa: N802
         return self.doc
@@ -138,6 +147,9 @@ class FakeApp:
 
     def version(self) -> str:
         return "5.2.6"
+
+    def action(self, name: str) -> FakeAction | None:
+        return self.quit_action if name == "file_quit" else None
 
 
 class FakeDiffusion:
@@ -254,6 +266,23 @@ def test_document_lifecycle_safety(
     closed = client.post_json("/api/document/close", {"save_before": True})
     assert closed.ok
     assert app.doc.closed is True
+
+
+def test_app_quit_endpoint_requires_explicit_policy(
+    shim_server: tuple[str, HTTPServer, FakeApp],
+) -> None:
+    base_url, _server, app = shim_server
+    client = JsonEndpointClient(base_url, timeout=2)
+
+    invalid = client.post_json("/api/app/quit", {"policy": "bad"})
+    assert not invalid.ok
+    assert invalid.status == 400
+
+    scheduled = client.post_json("/api/app/quit", {"policy": "cancel", "delay_ms": 0})
+    assert scheduled.ok
+    assert scheduled.data["policy"] == "cancel"
+    assert scheduled.data["status"] == "scheduled"
+    assert app.quit_action.triggered is True
 
 
 def test_diffusion_and_jobs_endpoints(shim_server: tuple[str, HTTPServer, FakeApp]) -> None:

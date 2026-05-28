@@ -275,6 +275,14 @@ def make_handler(context: ShimContext) -> type[BaseHTTPRequestHandler]:
                     status = self._send_operation(
                         self._document_call(lambda: context.documents.close_document(save_before))
                     )
+                elif path == "/api/app/quit":
+                    policy = str(body.get("policy", "cancel"))
+                    delay_ms = int(body.get("delay_ms", 0) or 0)
+                    status = self._send_operation(
+                        self._document_call(
+                            lambda: context.documents.quit_application(policy, delay_ms)
+                        )
+                    )
                 elif path == "/api/diffusion/mode":
                     mode = str(body.get("mode", ""))
                     status = self._send_diffusion(context.diffusion.set_mode(mode))

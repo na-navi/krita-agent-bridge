@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
+from .bootstrap import bootstrap_test_mode
 from .client import JsonEndpointClient
 from .doctor import run_doctor, format_summary
 from .e2e_smoke import run_smoke_workflow
@@ -98,6 +99,29 @@ def command_smoke(args: argparse.Namespace) -> int:
     return 0 if result.ok else 1
 
 
+def command_bootstrap(args: argparse.Namespace) -> int:
+    result = bootstrap_test_mode(
+        krita_exe=args.krita_exe,
+        krita_api=args.krita_api,
+        comfyui_api=args.comfyui_api,
+        document_name=args.document_name,
+        width=args.width,
+        height=args.height,
+        timeout=args.timeout,
+        interval=args.interval,
+        request_timeout=args.request_timeout,
+        create_document=not args.no_document,
+    )
+    if args.json:
+        print(json.dumps({"bootstrap": result.to_dict()}, ensure_ascii=False, indent=2))
+    else:
+        state = "ready" if result.ok else "not ready"
+        print(f"Krita test bootstrap {state}: {result.message}")
+        print(f"  started_krita: {result.started_krita}")
+        print(f"  document_created: {result.document_created}")
+    return 0 if result.ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="krita-agent",
@@ -175,6 +199,29 @@ def build_parser() -> argparse.ArgumentParser:
     smoke.add_argument("--interval", type=float, default=1.0, help="Polling interval")
     smoke.add_argument("--request-timeout", type=float, default=10.0, help="Per-request timeout")
     smoke.set_defaults(func=command_smoke)
+
+    bootstrap = sub.add_parser(
+        "bootstrap",
+        help="Start Krita if needed, create a blank document, and wait for test readiness",
+    )
+    bootstrap.add_argument("--json", action="store_true", help="Output bootstrap result as JSON")
+    bootstrap.add_argument(
+        "--krita-exe",
+        default=r"C:\Program Files\Krita (x64)\bin\krita.exe",
+        help="Path to krita.exe",
+    )
+    bootstrap.add_argument("--document-name", default="smoke-bootstrap")
+    bootstrap.add_argument("--width", type=int, default=1024)
+    bootstrap.add_argument("--height", type=int, default=1024)
+    bootstrap.add_argument("--timeout", type=float, default=180.0)
+    bootstrap.add_argument("--interval", type=float, default=1.0)
+    bootstrap.add_argument("--request-timeout", type=float, default=3.0)
+    bootstrap.add_argument(
+        "--no-document",
+        action="store_true",
+        help="Only start Krita/shim and ComfyUI readiness; do not create a document",
+    )
+    bootstrap.set_defaults(func=command_bootstrap)
     return parser
 
 
