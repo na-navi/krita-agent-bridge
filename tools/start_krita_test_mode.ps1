@@ -5,7 +5,7 @@ param(
     [string]$DocumentName = "smoke-bootstrap",
     [int]$Width = 1024,
     [int]$Height = 1024,
-    [double]$Timeout = 180,
+    [double]$Timeout = 120,
     [double]$Interval = 1,
     [switch]$NoDocument,
     [switch]$Json
