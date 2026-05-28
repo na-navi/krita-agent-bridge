@@ -8,7 +8,7 @@ from .bootstrap import bootstrap_test_mode
 from .client import JsonEndpointClient
 from .doctor import run_doctor, format_summary
 from .e2e_smoke import run_smoke_workflow
-from .polling_policy import MAX_POLL_SECONDS, clamp_poll_timeout
+from .polling_policy import PER_TASK_SECONDS, clamp_poll_timeout
 from .readiness import ReadinessProbe
 
 DEFAULT_KRITA_API = "http://127.0.0.1:8900"
@@ -148,10 +148,10 @@ def build_parser() -> argparse.ArgumentParser:
     ready.add_argument(
         "--timeout",
         type=float,
-        default=MAX_POLL_SECONDS,
+        default=PER_TASK_SECONDS,
         help=(
-            f"Maximum wait time when --wait is set. Capped at {MAX_POLL_SECONDS:.0f}s "
-            "(2-min SLO); set KRITA_AGENT_ALLOW_LONG_POLL=1 to bypass."
+            f"Maximum wait time when --wait is set. Capped at {PER_TASK_SECONDS:.0f}s "
+            "per task; set KRITA_AGENT_ALLOW_LONG_POLL=1 to bypass."
         ),
     )
     ready.add_argument(
@@ -197,11 +197,13 @@ def build_parser() -> argparse.ArgumentParser:
     smoke.add_argument(
         "--timeout",
         type=float,
-        default=MAX_POLL_SECONDS,
+        default=PER_TASK_SECONDS,
         help=(
-            "Maximum wait time for readiness and job completion. "
-            f"Capped at {MAX_POLL_SECONDS:.0f}s (2-min SLO); "
-            "set KRITA_AGENT_ALLOW_LONG_POLL=1 to bypass."
+            f"Per-stage cap in seconds (default {PER_TASK_SECONDS:.0f}s). "
+            "smoke has 2 polling stages, so total wall-time is bounded at "
+            f"~{2 * PER_TASK_SECONDS:.0f}s. Early stages release unused budget "
+            "to later ones, but no single stage exceeds the per-task cap. "
+            "Set KRITA_AGENT_ALLOW_LONG_POLL=1 to honor the raw value."
         ),
     )
     smoke.add_argument("--interval", type=float, default=1.0, help="Polling interval")
@@ -224,9 +226,9 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument(
         "--timeout",
         type=float,
-        default=MAX_POLL_SECONDS,
+        default=PER_TASK_SECONDS,
         help=(
-            f"Maximum wait time. Capped at {MAX_POLL_SECONDS:.0f}s (2-min SLO); "
+            f"Maximum wait time. Capped at {PER_TASK_SECONDS:.0f}s per task; "
             "set KRITA_AGENT_ALLOW_LONG_POLL=1 to bypass."
         ),
     )

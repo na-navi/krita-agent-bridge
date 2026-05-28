@@ -34,7 +34,7 @@ def bootstrap_test_mode(
     document_name: str = "smoke-bootstrap",
     width: int = 1024,
     height: int = 1024,
-    timeout: float = 120.0,
+    timeout: float = 60.0,
     interval: float = 1.0,
     request_timeout: float = 3.0,
     create_document: bool = True,

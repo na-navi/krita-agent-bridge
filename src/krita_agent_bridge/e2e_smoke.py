@@ -13,6 +13,7 @@ from .client import EndpointResult, JsonEndpointClient
 from .comfyui import ComfyUIAdapter
 from .doctor import run_doctor
 from .job_monitor import JobMonitor
+from .polling_policy import PER_TASK_SECONDS, PollBudget
 from .prepare import PrepareInput, build_workflow
 from .readiness import ReadinessProbe
 from .snapshot import Snapshot, SnapshotAdapter
@@ -56,11 +57,18 @@ def run_smoke_workflow(
     checkpoint: str | None = None,
     width: int = 1024,
     height: int = 1024,
-    timeout: float = 120.0,
+    timeout: float | None = None,
     request_timeout: float = 10.0,
     interval: float = 1.0,
 ) -> SmokeResult:
-    """Run the issue #35 smoke workflow and always write a JSON report."""
+    """Run the issue #35 smoke workflow and always write a JSON report.
+
+    Polling stages share a dynamic budget of ``N x PER_TASK_SECONDS``
+    where N is the number of polling stages (currently 2: readiness +
+    job_wait). ``timeout`` is accepted for back-compat but ignored when
+    the SLO is in effect; set ``KRITA_AGENT_ALLOW_LONG_POLL=1`` to honor
+    an explicit long timeout instead.
+    """
 
     report_file = Path(report_path)
     output_file = Path(output_path)
@@ -68,6 +76,14 @@ def run_smoke_workflow(
     client = JsonEndpointClient(krita_api, timeout=request_timeout)
     comfy = ComfyUIAdapter(comfyui_api, timeout=request_timeout)
     jobs = JobMonitor(krita_api, timeout=request_timeout)
+
+    # Two polling stages in this workflow: readiness wait + job wait.
+    # PollBudget enforces a shared N * PER_TASK_SECONDS deadline
+    # while still capping any single stage at PER_TASK_SECONDS.
+    budget = PollBudget(
+        task_count=2,
+        per_task=float(timeout) if timeout is not None else PER_TASK_SECONDS,
+    )
 
     def record(step: str, ok: bool, data: Any = None) -> None:
         steps.append(SmokeStep(time.time(), step, ok, _jsonable(data)))
@@ -116,7 +132,10 @@ def run_smoke_workflow(
             krita_api=krita_api,
             comfyui_api=comfyui_api,
             timeout=request_timeout,
-        ).wait(timeout=timeout, interval=interval)
+        ).wait(
+            timeout=budget.take("readiness", fallback=timeout or PER_TASK_SECONDS),
+            interval=interval,
+        )
         record("readiness", readiness.ready, readiness.to_dict())
         if not readiness.ready:
             return finish(False, "readiness checks did not pass")
@@ -158,7 +177,11 @@ def run_smoke_workflow(
         if not generated.ok or not job_id:
             return finish(False, "generation did not return a job_id")
 
-        waited = jobs.wait_for_job(job_id, timeout=timeout, interval=interval)
+        waited = jobs.wait_for_job(
+            job_id,
+            timeout=budget.take("job_wait", fallback=timeout or PER_TASK_SECONDS),
+            interval=interval,
+        )
         record("wait_for_job", waited.ok, waited)
         if not waited.ok:
             return finish(False, "job did not finish successfully")
